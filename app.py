@@ -1,11 +1,11 @@
 """
-NEET PG Friction-Free Launchpad (v3.0 – polished & fixed)
-===========================================================
+NEET PG Friction-Free Launchpad (v3.1 – fixed breaks + body double)
+====================================================================
 - One-click micro-session (2 min) or choose longer duration
 - Auto subject & micro-topic selection
 - Visual countdown timer (non‑blocking)
-- Body doubling video (working embed)
-- Sensory breaks (dark, stim, breath, walk)
+- Reliable body double (embedded YouTube iframe)
+- Sensory breaks: breathing animation, stim animation, walk reminder
 - Sticker rewards & session log
 - Custom subject/topic management (file‑based persistence)
 - "Break it down" to split large topics
@@ -64,7 +64,7 @@ STICKER_POOL = ["⭐", "🌟", "🎉", "🦊", "🐢", "🌸", "🍀", "💖", "
 TOPICS_FILE = "user_topics.json"
 
 # ----------------------------------------------
-# FILE PERSISTENCE (no crashing JavaScript)
+# FILE PERSISTENCE
 # ----------------------------------------------
 def load_subjects():
     if os.path.exists(TOPICS_FILE):
@@ -96,7 +96,7 @@ if "topic" not in st.session_state:
     st.session_state.topic = None
 
 if "timer_duration" not in st.session_state:
-    st.session_state.timer_duration = 2 * 60  # default 2 min
+    st.session_state.timer_duration = 2 * 60
 
 if "timer_start_ts" not in st.session_state:
     st.session_state.timer_start_ts = None
@@ -105,7 +105,7 @@ if "data" not in st.session_state:
     st.session_state.data = {"stickers": [], "logs": [], "total_focus_minutes": 0}
 
 # ----------------------------------------------
-# CLEAN DARK STYLES (no dyslexia toggle)
+# CLEAN DARK STYLES
 # ----------------------------------------------
 def apply_styles():
     st.markdown("""
@@ -133,6 +133,24 @@ def apply_styles():
         text-align: center;
         word-wrap: break-word;
     }
+    /* Stim animation */
+    .stim-circle {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        background: linear-gradient(45deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3);
+        background-size: 300% 300%;
+        margin: 0 auto;
+        animation: pulse 2s infinite, colorShift 3s infinite alternate;
+    }
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.4); }
+    }
+    @keyframes colorShift {
+        0% { background-position: 0% 50%; }
+        100% { background-position: 100% 50%; }
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -147,7 +165,6 @@ def focus_timer_ui():
         st.session_state.app_phase = "welcome"
         st.rerun()
 
-    # JavaScript countdown (does not block Streamlit)
     components.html(f"""
     <div id="timer" style="font-size:5rem; text-align:center; color:#81c784; font-family:monospace;">--:--</div>
     <script>
@@ -217,7 +234,6 @@ def manage_topics_ui():
                 save_subjects(subjects)
                 st.rerun()
 
-        # ---- Break it down ----
         st.markdown("---")
         st.markdown("### ✂️ Break a large topic into smaller pieces")
         to_split = st.selectbox("Choose a topic to split", topics, key=f"split_sel_{sel_subj}")
@@ -267,7 +283,7 @@ def show_welcome():
     # Longer options
     with st.expander("🕒 Or choose your session length & topic"):
         dur_opts = {"2 minutes": 2, "5 minutes": 5, "15 minutes": 15, "25 minutes": 25, "45 minutes": 45}
-        chosen_dur = st.radio("How long feels doable?", list(dur_opts.keys()), index=2)  # default 15 min
+        chosen_dur = st.radio("How long feels doable?", list(dur_opts.keys()), index=2)
         st.session_state.timer_duration = dur_opts[chosen_dur] * 60
 
         subjects = st.session_state.subjects
@@ -290,9 +306,16 @@ def show_focus_timer():
     st.markdown(f"<div class='mantra'>{random.choice(MANTRAS)}</div>", unsafe_allow_html=True)
     st.markdown(f"### 📖 {st.session_state.subject} — {st.session_state.topic}")
     focus_timer_ui()
-    # Body double (working embed)
+
+    # ---- RELIABLE BODY DOUBLE ----
     with st.expander("🤝 Need a body double?"):
-        st.video("https://www.youtube.com/watch?v=jfKfPfyJRdk")
+        # Use an iframe embed – much more reliable than st.video
+        components.html("""
+            <iframe width="560" height="315" 
+                src="https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&mute=1" 
+                frameborder="0" allow="autoplay; encrypted-media" allowfullscreen>
+            </iframe>
+        """, height=320)
 
 def show_session_done():
     # Reward
@@ -313,17 +336,17 @@ def show_session_done():
         })
         st.success("Logged!")
 
-    # Break menu (all working)
+    # ---- BREAK MENU (quiet dark removed, stim replaced) ----
     st.markdown("---")
     st.markdown("### 🧘 Brain break (if you want)")
-    c1, c2, c3, c4 = st.columns(4)
-    if c1.button("🌑 Quiet dark"):
-        st.session_state.app_phase = "break_dark"; st.rerun()
-    if c2.button("🌀 Stim break"):
-        st.session_state.app_phase = "break_stim"; st.rerun()
-    if c3.button("🌬️ Breathe"):
-        st.session_state.app_phase = "break_breathe"; st.rerun()
-    if c4.button("🚶 Walk & water"):
+    c1, c2, c3 = st.columns(3)
+    if c1.button("🌀 Stim break"):
+        st.session_state.app_phase = "break_stim"
+        st.rerun()
+    if c2.button("🌬️ Breathe"):
+        st.session_state.app_phase = "break_breathe"
+        st.rerun()
+    if c3.button("🚶 Walk & water"):
         st.info("Get up, drink water, look outside. I’ll wait right here.")
 
     if st.button("🔁 Another session?"):
@@ -332,15 +355,14 @@ def show_session_done():
         st.session_state.topic = None
         st.rerun()
 
-def show_break_dark():
-    st.markdown("<div style='background:#000;height:80vh;display:flex;align-items:center;justify-content:center;color:#fff;font-size:2rem;'>Quiet. Dark. Rest.</div>", unsafe_allow_html=True)
-    if st.button("Back", key="back_dark"):
-        st.session_state.app_phase = "session_done"; st.rerun()
-
 def show_break_stim():
-    st.image("https://media.giphy.com/media/3o7aTskHEUdgCQtuU4/giphy.gif", use_column_width=True)
-    if st.button("Back", key="back_stim"):
-        st.session_state.app_phase = "session_done"; st.rerun()
+    st.markdown("### Stim break: watch the colours pulse")
+    # CSS-defined animation – no external files needed
+    st.markdown("<div class='stim-circle'></div>", unsafe_allow_html=True)
+    st.caption("Let your eyes follow the movement. Breathe.")
+    if st.button("Back to session", key="back_stim"):
+        st.session_state.app_phase = "session_done"
+        st.rerun()
 
 def show_break_breathe():
     st.markdown("""
@@ -350,8 +372,9 @@ def show_break_breathe():
     </div>
     <style>@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(2)}}</style>
     """, unsafe_allow_html=True)
-    if st.button("Back", key="back_breathe"):
-        st.session_state.app_phase = "session_done"; st.rerun()
+    if st.button("Back to session", key="back_breathe"):
+        st.session_state.app_phase = "session_done"
+        st.rerun()
 
 def sidebar():
     with st.sidebar:
@@ -385,8 +408,6 @@ def main():
         show_focus_timer()
     elif phase == "session_done":
         show_session_done()
-    elif phase == "break_dark":
-        show_break_dark()
     elif phase == "break_stim":
         show_break_stim()
     elif phase == "break_breathe":

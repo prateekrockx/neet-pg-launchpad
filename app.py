@@ -1,13 +1,13 @@
 """
-NEET PG Friction-Free Launchpad (v2.2 - fully fixed localStorage)
-=================================================================
+NEET PG Friction-Free Launchpad (v2.3 – file persistence)
+===========================================================
 - One-click micro-session start
 - Auto subject & micro-topic selection
-- Visual (non-blocking) countdown timer
+- Visual countdown timer
 - Body doubling, sensory breaks, sticker rewards
-- Custom subject/topic management (saved in browser's localStorage)
+- Custom subject/topic management (saved to a JSON file)
 - "Break it down" feature to split large topics
-- Fully free & shareable via Streamlit Community Cloud
+- Fully free & shareable via Streamlit Cloud
 
 HOW TO RUN LOCALLY:
     pip install streamlit
@@ -19,6 +19,7 @@ import streamlit.components.v1 as components
 import time
 import random
 import json
+import os
 from datetime import datetime
 
 # -------------------------------
@@ -68,49 +69,34 @@ MANTRAS = [
 
 STICKER_POOL = ["⭐", "🌟", "🎉", "🦊", "🐢", "🌸", "🍀", "💖", "🪷", "🎈"]
 
-# -------------------------------
-# 3. LOCALSTORAGE BRIDGE (FIXED)
-# -------------------------------
-def load_subjects_from_storage():
-    """Loads subjects from localStorage (returns default if none)."""
-    component_value = components.html("""
-        <script src="https://cdn.jsdelivr.net/npm/@streamlit/component-lib@latest/streamlit-component-lib.js"></script>
-        <script>
-            let raw = localStorage.getItem('neetpg_subjects');
-            if (raw) {
-                try {
-                    let data = JSON.parse(raw);
-                    window.Streamlit.setComponentValue(data);
-                } catch (e) {
-                    window.Streamlit.setComponentValue(null);
-                }
-            } else {
-                window.Streamlit.setComponentValue(null);
-            }
-        </script>
-    """, height=0, key="load_subjects")
+# File to store custom topics
+TOPICS_FILE = "user_topics.json"
 
-    if component_value and isinstance(component_value, dict) and len(component_value) > 0:
-        return component_value
+# -------------------------------
+# 3. FILE-BASED PERSISTENCE (no localStorage, no extra libraries)
+# -------------------------------
+def load_subjects_from_file():
+    """Load custom subjects from a JSON file, fallback to defaults."""
+    if os.path.exists(TOPICS_FILE):
+        try:
+            with open(TOPICS_FILE, "r") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and len(data) > 0:
+                return data
+        except:
+            pass
     return DEFAULT_SUBJECTS.copy()
 
-
-def save_subjects_to_storage(subjects):
-    """Saves the subjects dict to localStorage as a single JSON string."""
-    subjects_json_str = json.dumps(subjects)
-    components.html(f"""
-        <script src="https://cdn.jsdelivr.net/npm/@streamlit/component-lib@latest/streamlit-component-lib.js"></script>
-        <script>
-            localStorage.setItem('neetpg_subjects', {json.dumps(subjects_json_str)});
-            window.Streamlit.setComponentValue(true);
-        </script>
-    """, height=0, key="save_subjects")
+def save_subjects_to_file(subjects):
+    """Save subjects dict to a JSON file."""
+    with open(TOPICS_FILE, "w") as f:
+        json.dump(subjects, f, indent=2)
 
 # -------------------------------
 # 4. APP STATE
 # -------------------------------
 if "subjects" not in st.session_state:
-    st.session_state.subjects = load_subjects_from_storage()
+    st.session_state.subjects = load_subjects_from_file()
 
 if "app_phase" not in st.session_state:
     st.session_state.app_phase = "welcome"
@@ -212,7 +198,6 @@ def focus_timer_ui():
     </script>
     """, height=150)
 
-    # PDA-friendly manual finish button
     if st.button("Finish session (that's okay!)", key="finish_early"):
         st.session_state.app_phase = "session_done"
         st.rerun()
@@ -223,7 +208,7 @@ def focus_timer_ui():
 def manage_topics_ui():
     """Allow adding/removing subjects and micro-topics, and splitting topics."""
     st.markdown("## ✏️ Customise Your Topics")
-    st.caption("All changes are saved to your browser. Only you see them.")
+    st.caption("Changes are saved automatically (survive page refreshes, reset if server restarts).")
 
     subjects = st.session_state.subjects
 
@@ -233,13 +218,12 @@ def manage_topics_ui():
         if st.button("Add subject") and new_sub:
             if new_sub not in subjects:
                 subjects[new_sub] = []
-                save_subjects_to_storage(subjects)
+                save_subjects_to_file(subjects)
                 st.success(f"Added {new_sub}")
                 st.rerun()
             else:
                 st.warning("Subject already exists.")
 
-    # Select subject to edit
     subject_list = list(subjects.keys())
     if not subject_list:
         st.warning("No subjects. Add one first!")
@@ -250,24 +234,22 @@ def manage_topics_ui():
         st.subheader(f"Micro-topics under {selected_subject}")
         topics = subjects[selected_subject]
 
-        # Show existing topics
         if topics:
             for i, t in enumerate(topics):
                 col1, col2 = st.columns([4, 1])
                 col1.write(f"- {t}")
                 if col2.button("🗑️", key=f"del_{selected_subject}_{i}"):
                     topics.pop(i)
-                    save_subjects_to_storage(subjects)
+                    save_subjects_to_file(subjects)
                     st.rerun()
         else:
             st.write("No micro-topics yet. Add one below!")
 
-        # Add micro-topic
         new_topic = st.text_input("Add a micro-topic", key=f"new_topic_{selected_subject}")
         if st.button("Add micro-topic", key=f"add_topic_{selected_subject}"):
             if new_topic and new_topic not in topics:
                 topics.append(new_topic)
-                save_subjects_to_storage(subjects)
+                save_subjects_to_file(subjects)
                 st.rerun()
 
         # Break it down
@@ -286,21 +268,20 @@ def manage_topics_ui():
                     for part in new_parts:
                         if part not in topics:
                             topics.append(part)
-                    save_subjects_to_storage(subjects)
+                    save_subjects_to_file(subjects)
                     st.success(f"Topic split into {len(new_parts)} smaller pieces!")
                     st.rerun()
 
-        # Delete whole subject
         if st.button(f"🗑️ Delete entire subject: {selected_subject}", key=f"del_subject_{selected_subject}"):
             if selected_subject in subjects:
                 del subjects[selected_subject]
-                save_subjects_to_storage(subjects)
+                save_subjects_to_file(subjects)
                 st.rerun()
 
-    # Reset to defaults
     if st.button("🔄 Reset all topics to original NEET PG list"):
         st.session_state.subjects = DEFAULT_SUBJECTS.copy()
-        save_subjects_to_storage(DEFAULT_SUBJECTS)
+        if os.path.exists(TOPICS_FILE):
+            os.remove(TOPICS_FILE)
         st.success("Reset complete!")
         st.rerun()
 

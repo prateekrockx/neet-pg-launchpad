@@ -1,15 +1,16 @@
 """
-NEET PG Friction-Free Launchpad (v2.3 – file persistence)
+NEET PG Friction-Free Launchpad (v3.0 – polished & fixed)
 ===========================================================
-- One-click micro-session start
+- One-click micro-session (2 min) or choose longer duration
 - Auto subject & micro-topic selection
-- Visual countdown timer
-- Body doubling, sensory breaks, sticker rewards
-- Custom subject/topic management (saved to a JSON file)
-- "Break it down" feature to split large topics
-- Fully free & shareable via Streamlit Cloud
+- Visual countdown timer (non‑blocking)
+- Body doubling video (working embed)
+- Sensory breaks (dark, stim, breath, walk)
+- Sticker rewards & session log
+- Custom subject/topic management (file‑based persistence)
+- "Break it down" to split large topics
 
-HOW TO RUN LOCALLY:
+HOW TO RUN:
     pip install streamlit
     streamlit run app.py
 """
@@ -22,19 +23,11 @@ import json
 import os
 from datetime import datetime
 
-# -------------------------------
-# 1. PAGE CONFIG
-# -------------------------------
-st.set_page_config(
-    page_title="NEET PG Launchpad",
-    page_icon="🚀",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="NEET PG Launchpad", page_icon="🚀", layout="centered", initial_sidebar_state="collapsed")
 
-# -------------------------------
-# 2. DEFAULT SUBJECTS & TOPICS
-# -------------------------------
+# ----------------------------------------------
+# DEFAULT SUBJECTS & MICRO-TOPICS
+# ----------------------------------------------
 DEFAULT_SUBJECTS = {
     "Anatomy": ["Brachial plexus", "Femoral triangle", "Portal vein system"],
     "Physiology": ["Action potential", "GFR regulation", "Oxygen-hemoglobin curve"],
@@ -68,15 +61,12 @@ MANTRAS = [
 ]
 
 STICKER_POOL = ["⭐", "🌟", "🎉", "🦊", "🐢", "🌸", "🍀", "💖", "🪷", "🎈"]
-
-# File to store custom topics
 TOPICS_FILE = "user_topics.json"
 
-# -------------------------------
-# 3. FILE-BASED PERSISTENCE (no localStorage, no extra libraries)
-# -------------------------------
-def load_subjects_from_file():
-    """Load custom subjects from a JSON file, fallback to defaults."""
+# ----------------------------------------------
+# FILE PERSISTENCE (no crashing JavaScript)
+# ----------------------------------------------
+def load_subjects():
     if os.path.exists(TOPICS_FILE):
         try:
             with open(TOPICS_FILE, "r") as f:
@@ -87,28 +77,26 @@ def load_subjects_from_file():
             pass
     return DEFAULT_SUBJECTS.copy()
 
-def save_subjects_to_file(subjects):
-    """Save subjects dict to a JSON file."""
+def save_subjects(subjects):
     with open(TOPICS_FILE, "w") as f:
         json.dump(subjects, f, indent=2)
 
-# -------------------------------
-# 4. APP STATE
-# -------------------------------
+# ----------------------------------------------
+# SESSION STATE INIT
+# ----------------------------------------------
 if "subjects" not in st.session_state:
-    st.session_state.subjects = load_subjects_from_file()
+    st.session_state.subjects = load_subjects()
 
 if "app_phase" not in st.session_state:
     st.session_state.app_phase = "welcome"
 
 if "subject" not in st.session_state:
     st.session_state.subject = None
-
 if "topic" not in st.session_state:
     st.session_state.topic = None
 
 if "timer_duration" not in st.session_state:
-    st.session_state.timer_duration = 2 * 60
+    st.session_state.timer_duration = 2 * 60  # default 2 min
 
 if "timer_start_ts" not in st.session_state:
     st.session_state.timer_start_ts = None
@@ -116,221 +104,207 @@ if "timer_start_ts" not in st.session_state:
 if "data" not in st.session_state:
     st.session_state.data = {"stickers": [], "logs": [], "total_focus_minutes": 0}
 
-if "dyslexic_font" not in st.session_state:
-    st.session_state.dyslexic_font = False
-if "high_contrast" not in st.session_state:
-    st.session_state.high_contrast = False
-
-# -------------------------------
-# 5. CSS / STYLING
-# -------------------------------
+# ----------------------------------------------
+# CLEAN DARK STYLES (no dyslexia toggle)
+# ----------------------------------------------
 def apply_styles():
-    base_font = "'OpenDyslexic', sans-serif" if st.session_state.dyslexic_font else "system-ui, sans-serif"
-    dark_bg = "#121212" if not st.session_state.high_contrast else "#000000"
-    text_color = "#e0e0e0" if not st.session_state.high_contrast else "#ffffff"
-    accent = "#81c784" if not st.session_state.high_contrast else "#ffff00"
-    btn_bg = "#333333" if not st.session_state.high_contrast else "#ffffff"
-    btn_text = "#ffffff" if not st.session_state.high_contrast else "#000000"
-
-    st.markdown(f"""
+    st.markdown("""
     <style>
-    @import url('https://fonts.cdnfonts.com/css/open-dyslexic');
-    .main, .stApp {{
-        background-color: {dark_bg};
-        color: {text_color};
-        font-family: {base_font};
-    }}
-    .stButton>button {{
-        background-color: {btn_bg};
-        color: {btn_text};
+    .main, .stApp {
+        background-color: #121212;
+        color: #e0e0e0;
+        font-family: system-ui, sans-serif;
+    }
+    .stButton>button {
+        background-color: #333333;
+        color: white;
         border-radius: 30px;
         padding: 15px 25px;
         font-size: 1.2rem;
-        font-family: {base_font};
-    }}
-    .mantra {{
+    }
+    .mantra {
         font-style: italic;
-        color: {accent};
+        color: #81c784;
         text-align: center;
         margin: 20px;
-    }}
-    .sticker-board {{
+    }
+    .sticker-board {
         font-size: 2.5rem;
         text-align: center;
         word-wrap: break-word;
-    }}
-    .timer-big {{
-        font-size: 5rem;
-        font-weight: bold;
-        text-align: center;
-        color: {accent};
-    }}
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# -------------------------------
-# 6. TIMER (visual only)
-# -------------------------------
+# ----------------------------------------------
+# VISUAL TIMER (non‑blocking)
+# ----------------------------------------------
 def focus_timer_ui():
-    """Shows a visual countdown and a button to finish."""
-    duration = st.session_state.timer_duration
-    start_ts = st.session_state.timer_start_ts
-    if start_ts is None:
-        st.error("Timer error, restarting.")
+    dur = st.session_state.timer_duration
+    start = st.session_state.timer_start_ts
+    if start is None:
+        st.error("Timer error — restarting")
         st.session_state.app_phase = "welcome"
         st.rerun()
 
+    # JavaScript countdown (does not block Streamlit)
     components.html(f"""
-    <div id="timer-display" style="font-size:5rem; text-align:center; color:#81c784; font-family: monospace;">--:--</div>
+    <div id="timer" style="font-size:5rem; text-align:center; color:#81c784; font-family:monospace;">--:--</div>
     <script>
-        const duration = {duration};
-        const startTime = new Date({start_ts * 1000});
-        function update() {{
-            const now = new Date();
-            const elapsed = Math.floor((now - startTime) / 1000);
-            const remaining = Math.max(duration - elapsed, 0);
-            const mins = Math.floor(remaining / 60);
-            const secs = remaining % 60;
-            document.getElementById('timer-display').innerText = `${{String(mins).padStart(2,'0')}}:${{String(secs).padStart(2,'0')}}`;
-            if (remaining > 0) setTimeout(update, 500);
-        }}
-        update();
+    const dur = {dur};
+    const start = new Date({start * 1000});
+    function tick() {{
+        const now = new Date();
+        const secLeft = Math.max(0, dur - Math.floor((now - start)/1000));
+        const m = Math.floor(secLeft/60), s = secLeft%60;
+        document.getElementById('timer').innerText = `${{String(m).padStart(2,'0')}}:${{String(s).padStart(2,'0')}}`;
+        if(secLeft > 0) setTimeout(tick, 500);
+    }}
+    tick();
     </script>
     """, height=150)
 
-    if st.button("Finish session (that's okay!)", key="finish_early"):
+    if st.button("✅ Finish session (it’s okay!)", key="finish"):
         st.session_state.app_phase = "session_done"
         st.rerun()
 
-# -------------------------------
-# 7. TOPIC MANAGEMENT UI
-# -------------------------------
+# ----------------------------------------------
+# TOPIC MANAGER
+# ----------------------------------------------
 def manage_topics_ui():
-    """Allow adding/removing subjects and micro-topics, and splitting topics."""
     st.markdown("## ✏️ Customise Your Topics")
-    st.caption("Changes are saved automatically (survive page refreshes, reset if server restarts).")
+    st.caption("Changes are saved automatically on the server.")
 
     subjects = st.session_state.subjects
 
-    # Add a new subject
     with st.expander("➕ Add a new subject"):
-        new_sub = st.text_input("Subject name (e.g., Radiology)")
+        new_sub = st.text_input("Subject name")
         if st.button("Add subject") and new_sub:
             if new_sub not in subjects:
                 subjects[new_sub] = []
-                save_subjects_to_file(subjects)
-                st.success(f"Added {new_sub}")
+                save_subjects(subjects)
+                st.success(f"Added “{new_sub}”")
                 st.rerun()
             else:
-                st.warning("Subject already exists.")
+                st.warning("Already exists.")
 
-    subject_list = list(subjects.keys())
-    if not subject_list:
-        st.warning("No subjects. Add one first!")
+    subj_list = list(subjects.keys())
+    if not subj_list:
+        st.warning("No subjects yet — add one above.")
         return
-    selected_subject = st.selectbox("Choose a subject to edit", subject_list, index=0)
 
-    if selected_subject:
-        st.subheader(f"Micro-topics under {selected_subject}")
-        topics = subjects[selected_subject]
+    sel_subj = st.selectbox("Choose a subject to edit", subj_list)
+
+    if sel_subj:
+        st.subheader(f"Topics under “{sel_subj}”")
+        topics = subjects[sel_subj]
 
         if topics:
             for i, t in enumerate(topics):
-                col1, col2 = st.columns([4, 1])
-                col1.write(f"- {t}")
-                if col2.button("🗑️", key=f"del_{selected_subject}_{i}"):
+                c1, c2 = st.columns([4,1])
+                c1.write(f"• {t}")
+                if c2.button("🗑", key=f"del_{sel_subj}_{i}"):
                     topics.pop(i)
-                    save_subjects_to_file(subjects)
+                    save_subjects(subjects)
                     st.rerun()
         else:
-            st.write("No micro-topics yet. Add one below!")
+            st.write("No micro‑topics yet. Add one below.")
 
-        new_topic = st.text_input("Add a micro-topic", key=f"new_topic_{selected_subject}")
-        if st.button("Add micro-topic", key=f"add_topic_{selected_subject}"):
+        new_topic = st.text_input("Add a micro‑topic", key=f"new_{sel_subj}")
+        if st.button("Add micro‑topic", key=f"add_{sel_subj}"):
             if new_topic and new_topic not in topics:
                 topics.append(new_topic)
-                save_subjects_to_file(subjects)
+                save_subjects(subjects)
                 st.rerun()
 
-        # Break it down
+        # ---- Break it down ----
         st.markdown("---")
         st.markdown("### ✂️ Break a large topic into smaller pieces")
-        st.caption("If a topic feels too big, split it into tiny, approachable chunks.")
-        topic_to_split = st.selectbox("Choose a topic to break down", topics, key=f"split_sel_{selected_subject}")
-        if topic_to_split:
-            st.write(f"**{topic_to_split}**  →  smaller parts:")
-            breakdown_input = st.text_area("List the smaller topics, separated by commas", placeholder="ECG basics, Heart sounds, Cardiac cycle review")
-            if st.button("Split this topic", key=f"split_btn_{selected_subject}"):
-                if breakdown_input:
-                    new_parts = [part.strip() for part in breakdown_input.split(",") if part.strip()]
-                    if topic_to_split in topics:
-                        topics.remove(topic_to_split)
-                    for part in new_parts:
-                        if part not in topics:
-                            topics.append(part)
-                    save_subjects_to_file(subjects)
-                    st.success(f"Topic split into {len(new_parts)} smaller pieces!")
+        to_split = st.selectbox("Choose a topic to split", topics, key=f"split_sel_{sel_subj}")
+        if to_split:
+            txt = st.text_area("List smaller topics (comma‑separated)", placeholder="ECG basics, Heart sounds, Cardiac cycle")
+            if st.button("Split", key=f"split_btn_{sel_subj}"):
+                if txt:
+                    parts = [p.strip() for p in txt.split(",") if p.strip()]
+                    if to_split in topics:
+                        topics.remove(to_split)
+                    for p in parts:
+                        if p not in topics:
+                            topics.append(p)
+                    save_subjects(subjects)
+                    st.success(f"Split into {len(parts)} pieces!")
                     st.rerun()
 
-        if st.button(f"🗑️ Delete entire subject: {selected_subject}", key=f"del_subject_{selected_subject}"):
-            if selected_subject in subjects:
-                del subjects[selected_subject]
-                save_subjects_to_file(subjects)
-                st.rerun()
+        if st.button(f"🗑 Delete whole subject “{sel_subj}”", key=f"del_sub_{sel_subj}"):
+            del subjects[sel_subj]
+            save_subjects(subjects)
+            st.rerun()
 
-    if st.button("🔄 Reset all topics to original NEET PG list"):
+    if st.button("🔄 Reset all to default NEET PG topics"):
         st.session_state.subjects = DEFAULT_SUBJECTS.copy()
         if os.path.exists(TOPICS_FILE):
             os.remove(TOPICS_FILE)
         st.success("Reset complete!")
         st.rerun()
 
-# -------------------------------
-# 8. MAIN APP PHASES
-# -------------------------------
+# ----------------------------------------------
+# APP SCREENS
+# ----------------------------------------------
 def show_welcome():
     st.title("🚀 NEET PG Launchpad")
     st.markdown("### Ready to just exist near your books for a moment?")
-    if st.button("Just 2 minutes?", key="welcome_start"):
+
+    # Quick start (2 min)
+    if st.button("⚡ Just 2 minutes?", key="quickstart"):
         subjects = st.session_state.subjects
-        if not subjects:
-            st.session_state.subjects = DEFAULT_SUBJECTS.copy()
-            subjects = st.session_state.subjects
-        subj = random.choice(list(subjects.keys()))
-        st.session_state.subject = subj
-        st.session_state.topic = random.choice(subjects[subj])
+        st.session_state.subject = random.choice(list(subjects.keys()))
+        st.session_state.topic = random.choice(subjects[st.session_state.subject])
         st.session_state.timer_duration = 2 * 60
         st.session_state.timer_start_ts = time.time()
         st.session_state.app_phase = "focus_timer"
         st.rerun()
 
-    with st.expander("Or pick a subject & topic (optional)"):
-        subjects = st.session_state.subjects if st.session_state.subjects else DEFAULT_SUBJECTS
-        subject_names = list(subjects.keys())
-        chosen_subj = st.selectbox("Subject", subject_names, index=None, placeholder="No pressure")
-        if chosen_subj:
-            st.session_state.subject = chosen_subj
-            topics = subjects[chosen_subj]
-            chosen_topic = st.selectbox("Micro-topic", topics, index=None, placeholder="Tiny chunk")
-            if chosen_topic:
-                st.session_state.topic = chosen_topic
+    # Longer options
+    with st.expander("🕒 Or choose your session length & topic"):
+        dur_opts = {"2 minutes": 2, "5 minutes": 5, "15 minutes": 15, "25 minutes": 25, "45 minutes": 45}
+        chosen_dur = st.radio("How long feels doable?", list(dur_opts.keys()), index=2)  # default 15 min
+        st.session_state.timer_duration = dur_opts[chosen_dur] * 60
+
+        subjects = st.session_state.subjects
+        subj = st.selectbox("Subject (optional)", list(subjects.keys()), index=None, placeholder="Auto‑picked if left empty")
+        if subj:
+            st.session_state.subject = subj
+            topic = st.selectbox("Micro‑topic", subjects[subj], index=None, placeholder="Tiny chunk")
+            if topic:
+                st.session_state.topic = topic
+        else:
+            st.session_state.subject = random.choice(list(subjects.keys()))
+            st.session_state.topic = random.choice(subjects[st.session_state.subject])
+
+        if st.button("Start session"):
+            st.session_state.timer_start_ts = time.time()
+            st.session_state.app_phase = "focus_timer"
+            st.rerun()
 
 def show_focus_timer():
     st.markdown(f"<div class='mantra'>{random.choice(MANTRAS)}</div>", unsafe_allow_html=True)
     st.markdown(f"### 📖 {st.session_state.subject} — {st.session_state.topic}")
     focus_timer_ui()
+    # Body double (working embed)
     with st.expander("🤝 Need a body double?"):
-        st.video("https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&mute=1")
+        st.video("https://www.youtube.com/watch?v=jfKfPfyJRdk")
 
 def show_session_done():
+    # Reward
     new_sticker = random.choice(STICKER_POOL)
     st.session_state.data["stickers"].append(new_sticker)
     st.session_state.data["total_focus_minutes"] += st.session_state.timer_duration // 60
     st.balloons()
     st.markdown(f"<div class='sticker-board'>{new_sticker}</div>", unsafe_allow_html=True)
-    st.success("You existed near your books and that 100% counts!")
-    note = st.text_input("💡 One tiny thing you remember or did (optional)")
-    if st.button("Save this tiny win"):
+    st.success("You showed up. That’s 100% a win!")
+
+    note = st.text_input("💡 One tiny thing you remember (optional)")
+    if st.button("Save note"):
         st.session_state.data["logs"].append({
             "timestamp": datetime.now().isoformat(),
             "subject": st.session_state.subject,
@@ -338,6 +312,8 @@ def show_session_done():
             "note": note or "showed up"
         })
         st.success("Logged!")
+
+    # Break menu (all working)
     st.markdown("---")
     st.markdown("### 🧘 Brain break (if you want)")
     c1, c2, c3, c4 = st.columns(4)
@@ -348,7 +324,8 @@ def show_session_done():
     if c3.button("🌬️ Breathe"):
         st.session_state.app_phase = "break_breathe"; st.rerun()
     if c4.button("🚶 Walk & water"):
-        st.info("Stand up, get water, look outside. I'll wait here.")
+        st.info("Get up, drink water, look outside. I’ll wait right here.")
+
     if st.button("🔁 Another session?"):
         st.session_state.app_phase = "welcome"
         st.session_state.subject = None
@@ -356,8 +333,8 @@ def show_session_done():
         st.rerun()
 
 def show_break_dark():
-    st.markdown("<div style='background:#000; height:80vh; display:flex; align-items:center; justify-content:center; color:#fff; font-size:2rem;'>Quiet. Dark. Rest.</div>", unsafe_allow_html=True)
-    if st.button("Back"):
+    st.markdown("<div style='background:#000;height:80vh;display:flex;align-items:center;justify-content:center;color:#fff;font-size:2rem;'>Quiet. Dark. Rest.</div>", unsafe_allow_html=True)
+    if st.button("Back", key="back_dark"):
         st.session_state.app_phase = "session_done"; st.rerun()
 
 def show_break_stim():
@@ -369,7 +346,7 @@ def show_break_breathe():
     st.markdown("""
     <div style="text-align:center;">
         <div style="width:100px;height:100px;background:#81c784;border-radius:50%;margin:0 auto;animation:breathe 8s infinite;"></div>
-        <p>Inhale (4s) ... Exhale (4s)</p>
+        <p>Inhale (4s) … Exhale (4s)</p>
     </div>
     <style>@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(2)}}</style>
     """, unsafe_allow_html=True)
@@ -379,33 +356,24 @@ def show_break_breathe():
 def sidebar():
     with st.sidebar:
         st.markdown("## 🏆 Sticker Board")
-        stickers = st.session_state.data.get("stickers", [])
+        stickers = st.session_state.data["stickers"]
         if stickers:
             st.markdown(f"<div class='sticker-board'>{' '.join(stickers)}</div>", unsafe_allow_html=True)
-            st.caption(f"Total focus: {st.session_state.data.get('total_focus_minutes',0)} min")
+            st.caption(f"Total focus time: {st.session_state.data['total_focus_minutes']} min")
         else:
-            st.write("No stickers yet.")
+            st.write("No stickers yet — even 2 minutes gets one!")
         if st.button("🎁 Surprise sticker"):
-            extra = random.choice(STICKER_POOL)
-            st.session_state.data["stickers"].append(extra)
+            st.session_state.data["stickers"].append(random.choice(STICKER_POOL))
             st.rerun()
-        st.markdown("---")
-        st.caption("Accessibility")
-        dys = st.checkbox("Dyslexia-friendly font", value=st.session_state.dyslexic_font)
-        if dys != st.session_state.dyslexic_font:
-            st.session_state.dyslexic_font = dys; st.rerun()
-        hc = st.checkbox("High contrast", value=st.session_state.high_contrast)
-        if hc != st.session_state.high_contrast:
-            st.session_state.high_contrast = hc; st.rerun()
 
         st.markdown("---")
         if st.button("⚙️ Manage Topics"):
             st.session_state.app_phase = "manage_topics"
             st.rerun()
 
-# -------------------------------
-# 9. MAIN APP ROUTER
-# -------------------------------
+# ----------------------------------------------
+# ROUTER
+# ----------------------------------------------
 def main():
     apply_styles()
     sidebar()
